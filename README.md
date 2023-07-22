@@ -1,6 +1,6 @@
 # Digit Recognizer
 
-[![License](https://img.shields.io/github/license/rmuraix/digit-recognizer)](./LICENSE)
+[![License](https://img.shields.io/github/license/rmuraix/digit-recognizer)](./LICENSE)  
 ![digit](./static/digits.png)
 
 ## About
