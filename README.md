@@ -9,7 +9,7 @@ Code for the Kaggle competition ['Digit Recognizer'](https://www.kaggle.com/comp
 
 ## Score
 
-**0.99328**
+**0.99389**
 
 ## Usage
 

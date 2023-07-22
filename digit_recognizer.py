@@ -62,7 +62,7 @@ X_train, X_valid, y_train, y_valid = train_test_split(
     x, y, test_size=0.15, shuffle=True
 )
 
-num_epoch = 25
+num_epoch = 50
 batch_size_train = 32
 batch_size_test = 32
 learning_rate = 0.002
@@ -222,91 +222,101 @@ class Net(nn.Module):
 
 """## Training the Model"""
 
-cnn_model = Net()
-criterion = nn.CrossEntropyLoss()
 
-if torch.cuda.is_available():
-    cnn_model.cuda()
-    criterion.cuda()
+def train():
+    criterion = nn.CrossEntropyLoss()
 
-optimizer = optim.Adam(params=cnn_model.parameters(), lr=learning_rate)
+    if torch.cuda.is_available():
+        cnn_model.cuda()
+        criterion.cuda()
 
-exp_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min")
+    optimizer = optim.Adam(params=cnn_model.parameters(), lr=learning_rate)
+    exp_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min")
 
-train_losses = []
-train_counter = []
-test_losses = []
-test_counter = [i * len(train_loader.dataset) for i in range(1, num_epoch + 1)]
+    train_losses = []
+    train_counter = []
+    test_losses = []
+    test_counter = [i * len(train_loader.dataset) for i in range(1, num_epoch + 1)]
 
-best_model_wts = copy.deepcopy(cnn_model.state_dict())
-best_acc = 0.0
+    best_model_wts = copy.deepcopy(cnn_model.state_dict())
+    best_acc = 0.0
 
-since = time.time()
+    since = time.time()
 
-for epoch in range(1, num_epoch + 1):
-    cnn_model.train()
-    for i, (images, labels) in enumerate(train_loader):
-        images = Variable(images).cuda()
-        labels = Variable(labels).cuda()
-        # Clear gradients
-        optimizer.zero_grad()
-        # Forward pass
-        outputs = cnn_model(images)
-        # Calculate loss
-        loss = criterion(outputs, labels)
-        # Backward pass
-        loss.backward()
-        # Update weights
-        optimizer.step()
-        if (i + 1) % log_interval == 0:
-            print(
-                "Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
-                    epoch,
-                    (i + 1) * len(images),
-                    len(train_loader.dataset),
-                    100.0 * (i + 1) / len(train_loader),
-                    loss.data,
+    for epoch in range(1, num_epoch + 1):
+        cnn_model.train()
+        for i, (images, labels) in enumerate(train_loader):
+            images = Variable(images).cuda()
+            labels = Variable(labels).cuda()
+            # Clear gradients
+            optimizer.zero_grad()
+            # Forward pass
+            outputs = cnn_model(images)
+            # Calculate loss
+            loss = criterion(outputs, labels)
+            # Backward pass
+            loss.backward()
+            # Update weights
+            optimizer.step()
+            if (i + 1) % log_interval == 0:
+                print(
+                    "Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
+                        epoch,
+                        (i + 1) * len(images),
+                        len(train_loader.dataset),
+                        100.0 * (i + 1) / len(train_loader),
+                        loss.data,
+                    )
                 )
+                train_losses.append(loss.item())
+                train_counter.append(
+                    (i * 64) + ((epoch - 1) * len(train_loader.dataset))
+                )
+        cnn_model.eval()
+        loss = 0
+        running_corrects = 0
+        with torch.no_grad():
+            for i, (data, target) in enumerate(valid_loader):
+                data = Variable(data).cuda()
+                target = Variable(target).cuda()
+                output = cnn_model(data)
+                loss += F.cross_entropy(output, target, reduction="sum").item()
+                _, preds = torch.max(output, 1)
+                running_corrects += torch.sum(preds == target.data)
+        loss /= len(valid_loader.dataset)
+        test_losses.append(loss)
+        epoch_acc = 100.0 * running_corrects.double() / len(valid_loader.dataset)
+        print(
+            "\nAverage Val Loss: {:.4f}, Val Accuracy: {}/{} ({:.3f}%)\n".format(
+                loss, running_corrects, len(valid_loader.dataset), epoch_acc
             )
-            train_losses.append(loss.item())
-            train_counter.append((i * 64) + ((epoch - 1) * len(train_loader.dataset)))
-    cnn_model.eval()
-    loss = 0
-    running_corrects = 0
-    with torch.no_grad():
-        for i, (data, target) in enumerate(valid_loader):
-            data = Variable(data).cuda()
-            target = Variable(target).cuda()
-            output = cnn_model(data)
-            loss += F.cross_entropy(output, target, reduction="sum").item()
-            _, preds = torch.max(output, 1)
-            running_corrects += torch.sum(preds == target.data)
-    loss /= len(valid_loader.dataset)
-    test_losses.append(loss)
-    epoch_acc = 100.0 * running_corrects.double() / len(valid_loader.dataset)
+        )
+        if epoch_acc > best_acc:
+            best_acc = epoch_acc
+            best_model_wts = copy.deepcopy(cnn_model.state_dict())
+        exp_lr_scheduler.step(loss)
+
+    time_elapsed = time.time() - since
     print(
-        "\nAverage Val Loss: {:.4f}, Val Accuracy: {}/{} ({:.3f}%)\n".format(
-            loss, running_corrects, len(valid_loader.dataset), epoch_acc
+        "Training complete in {:.0f}m {:.0f}s".format(
+            time_elapsed // 60, time_elapsed % 60
         )
     )
-    if epoch_acc > best_acc:
-        best_acc = epoch_acc
-        best_model_wts = copy.deepcopy(cnn_model.state_dict())
-    exp_lr_scheduler.step(loss)
+    print("Best val Acc: {:4f}".format(best_acc))
 
-time_elapsed = time.time() - since
-print(
-    "Training complete in {:.0f}m {:.0f}s".format(time_elapsed // 60, time_elapsed % 60)
-)
-print("Best val Acc: {:4f}".format(best_acc))
+    return train_counter, train_losses, test_counter, test_losses
+
+
+cnn_model = Net()
+train_counter, train_losses, test_counter, test_losses = train()
 
 """## Evaluating the Model's Performance
 
 """
 
 fig = plt.figure()
-plt.plot(train_counter, train_losses, color="blue")
-plt.scatter(test_counter, test_losses, color="red")
+plt.plot(train_counter, train_losses, color="darkblue")
+plt.plot(test_counter, test_losses, color="salmon")
 plt.legend(["Train Loss", "Test Loss"], loc="upper right")
 plt.xlabel("number of training examples seen")
 plt.ylabel("negative log likelihood loss")
